@@ -171,8 +171,10 @@ class JSONParser:
                         raise JSONParserError(
                             f"Invalid unicode escape at index {self.idx}"
                         )
-                    s.append(chr(code))
-                    print(s)
+                    if len(s) > 0 and 0xD800 <= ord(s[-1]) <= 0xDBFF and 0xDC00 <= code <= 0xDFFF:
+                        s[-1] = chr((ord(s[-1]) - 0xD800) * 0x400 + (code - 0xDC00) + 0x10000)
+                    else:
+                        s.append(chr(code))
                     continue
                 else:
                     raise JSONParserError(f"Invalid escape at index {self.idx}")
