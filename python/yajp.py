@@ -21,31 +21,42 @@ class JSONParser:
 
     def parse_element(self, root=False) -> JSONElement:
         obj = None
+        assigned = False
 
         while (val := self.peek()) is not None:
             if self.is_ws(val):
                 self.consume()
+            elif assigned:
+                break
             elif val == "{":
                 obj = self.parse_object()
+                assigned = True
             elif val == "[":
                 obj = self.parse_array()
+                assigned = True
             elif val == '"':
                 obj = self.parse_string()
+                assigned = True
             elif val in "-0123456789":
                 obj = self.parse_number()
+                assigned = True
             elif val == "t":
                 obj = self.parse_literal("true", True)
+                assigned = True
             elif val == "f":
                 obj = self.parse_literal("false", False)
+                assigned = True
             elif val == "n":
                 obj = self.parse_literal("null", None)
+                assigned = True
             else:
                 raise JSONParserError(f"Unexpected character: {val}")
-            if not root:
-                break
 
-        if root and self.peek() is not None:
-            raise JSONParserError(f"Unexpected character: {self.peek()}")
+        if root:
+            if self.peek() is not None:
+                raise JSONParserError(f"Unexpected character: {self.peek()}")
+            if obj is None and not assigned:
+                raise JSONParserError(f"Unexpected EOF at index {self.idx}")
 
         return obj
 
@@ -59,25 +70,38 @@ class JSONParser:
         self.consume()
         obj = {}
         expects_key = True
+        expects_colon = False
+        expects_object = False
         while (val := self.peek()) is not None:
             if self.is_ws(val):
                 self.consume()
-            elif (len(obj) == 0 or not expects_key) and val == "}":
+            elif (
+                (len(obj) == 0 or not expects_key)
+                and not expects_object
+                and not expects_colon
+                and val == "}"
+            ):
                 self.consume()
-                break
+                return obj
             elif expects_key:
                 key = self.parse_string()
                 expects_key = False
-            elif val == ":":
+                expects_colon = True
+            elif expects_colon and val == ":":
                 self.consume()
+                expects_object = True
+                expects_colon = False
+            elif expects_object:
                 el = self.parse_element()
                 obj[key] = el
-            elif val == ",":
+                expects_object = False
+            elif not expects_object and val == ",":
                 self.consume()
                 expects_key = True
             else:
                 raise JSONParserError(f"Unexpected character: {val}")
-        return obj
+
+        raise JSONParserError(f"Expected \x7d, found {self.peek()}")
 
     def parse_array(self) -> List[JSONElement]:
         self.consume()
@@ -88,7 +112,7 @@ class JSONParser:
                 self.consume()
             elif (len(arr) == 0 or not expects_element) and val == "]":
                 self.consume()
-                break
+                return arr
             elif expects_element:
                 arr.append(self.parse_element())
                 expects_element = False
@@ -97,7 +121,7 @@ class JSONParser:
                 expects_element = True
             else:
                 raise JSONParserError(f"Unexpected character: {val}")
-        return arr
+        raise JSONParserError(f"Expected \x5d, found {self.peek()}")
 
     def parse_hex(self, n: int) -> Union[int, None]:
         start = self.idx
@@ -148,6 +172,8 @@ class JSONParser:
                             f"Invalid unicode escape at index {self.idx}"
                         )
                     s.append(chr(code))
+                    print(s)
+                    continue
                 else:
                     raise JSONParserError(f"Invalid escape at index {self.idx}")
                 self.consume()
@@ -172,15 +198,16 @@ class JSONParser:
         )
         while (val := self.peek()) is not None:
             if val == ".":
-                if fraction or exponent:
+                if fraction or exponent or (sign_number and not (number or zero)):
                     raise JSONParserError(f"Invalid state: {fraction, exponent}")
                 fraction = True
                 self.consume()
                 continue
             elif val in "eE":
-                if exponent:
+                if exponent or (fraction and not start_fraction):
                     raise JSONParserError(f"Invalid state: {fraction, exponent}")
                 exponent = True
+                fraction = False
                 self.consume()
                 continue
             elif fraction:
@@ -224,8 +251,13 @@ class JSONParser:
                     elif val in "123456789":
                         number = True
                         self.consume()
+                    else:
+                        break
                 elif zero:
-                    raise JSONParserError(f"Unexpected character: {val}")
+                    if val in "0123456789":
+                        raise JSONParserError(f"Unexpected character: {val}")
+                    else:
+                        break
                 elif number:
                     if val in "0123456789":
                         self.consume()
