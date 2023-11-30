@@ -5,4 +5,4 @@ Toy Project - trying to implement JSON parse from scratch in as many lanugages a
 
 Progress so far:
 
-- Python (Implemeneted parser)
+- Python (271/271 passed) ✅
